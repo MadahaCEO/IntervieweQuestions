@@ -10,6 +10,7 @@
 * Category的实现原理，以及Category为什么只能加方法不能加属性。
 * 复写本类方法会怎样
 * Category中有load方法吗？load方法是什么时候调用的？load 方法能继承吗？load、initialize的区别，以及它们在category重写的时候的调用的次序。
+* 在主工程中使用 & 在静态库中使用 & 在动态库中使用区别
 
 **使用场景**
 
@@ -130,6 +131,36 @@ load方法会在程序启动就会调用，当装载类信息的时候就会调�
     // Do any additional setup after loading the view.
     
 }
+
+```
+
+**在主工程中使用 & 在静态库中使用 & 在动态库中使用区别**
+
+
+| 动态库  | 静态库  | 主工程 |
+|:------------- |:---------------:| -------------:|
+| 直接创建使用即可 | 可以直接创建且编译不报错；<br>当引入主工程后编译不报错，一旦调用静态库中Category函数即崩溃；<br>当引入动态库中效果雷同直接引入主工程 | 直接创建使用即可 |
+
+```
+当引入主工程，修改配置：目标工程的target的"Build Settings"中的“Other Linker Flags”选项添加“-all_load” 或 “-ObjC”
+
+当引入动态库，动态库同样需要修改配置同上
+
+```
+
+![img](Image/ce6.png)
+![img](Image/ce7.png)
+
+
+为什么会崩溃？
+
+```
+看看苹果怎么写的
+What causes those exceptions?
+An impedance mismatch（不匹配的意思） between UNIX static libraries and the dynamic nature of Objective-C can cause category methods in static libraries to not be linked into an app, resulting in "selector not recognized" exceptions when the methods aren't found at runtime.
+（静态库与OC的动态特性产生了不匹配，引起在静态库中的分类方法没有被链接进入app）
+
+静态库中的分类方法没有被链接进app，导致在运行时找不到这个方法，然后控制台输出“selector not recognized”进而崩溃
 
 ```
 
