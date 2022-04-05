@@ -289,6 +289,7 @@ static void _I_Person_testReferenceSelf(Person * self, SEL _cmd) {
 这就可以看出 self.block(); 即self强引用了block， __Person__testReferenceSelf_block_impl_0 中 Person *const __strong self; Person 强拥有self
 ```
 使用weak修饰
+
 ```
 @implementation Person
 
@@ -308,7 +309,9 @@ static void _I_Person_testReferenceSelf(Person * self, SEL _cmd) {
 @end
 
 ```
+
 编译c++
+
 ```
 struct __Person__testReferenceSelf_block_impl_0 {
   struct __block_impl impl;
