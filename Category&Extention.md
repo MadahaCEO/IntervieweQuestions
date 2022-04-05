@@ -32,7 +32,7 @@
 * 成员变量是存放在实例对象中的，并且编译的那一刻就已经决定好了。而分类是在运行时才去加载的。那么我们就无法再程序运行时将分类的成员变量中添加到实例对象的结构体中。因此分类中不可以添加成员变量。
 
 ```
-进入分类的文件目录，执行 命令 【xcrun -sdk iphoneos clang -arch arm64 -rewrite-objc ViewController+Cat.m】然后生成 ViewController+Cat.cpp 文件，打开cpp文件即可找到 
+进入分类的文件目录，执行 命令 【xcrun -sdk iphoneos clang -arch arm64 -rewrite-objc ViewController+Cat.m】或 【clang -rewrite-objc ViewController+Cat.m】然后生成 ViewController+Cat.cpp 文件，打开cpp文件即可找到 
 
 struct _category_t {
 	const char *name;// 类的名字  
