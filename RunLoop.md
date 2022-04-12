@@ -19,18 +19,11 @@ iOS中有两套API来访问和使用RunLoop：Foundation中的NSRunLoop、Core F
 CFRunLoop是开源的，地址是：https://opensource.apple.com/tarballs/CF/，CFRunLoopRef提供了两个自动获取RunLoop的函数：CFRunLoopGetMain()、CFRunLoopGetCurrent()，其内部逻辑如下：
 
 
+每条线程都有唯一的一个与之对应的RunLoop对象
+
+RunLoop保存在一个全局的Dictionary里，线程作为Key，RunLoop作为Value
 
 ```
-
-/// 全局的Dictionary，key 是 pthread_t， value 是 CFRunLoopRef
-static CFMutableDictionaryRef loopsDic;
-/// 访问 loopsDic 时的锁
-static CFSpinLock_t loopsLock;
-
-/// 获取一个 pthread 对应的 RunLoop。
-CFRunLoopRef _CFRunLoopGet(pthread_t thread) {
-OSSpinLockLock(&loopsLock);
-
 if (!loopsDic) {
 // 第一次进入时，初始化全局Dic，并先为主线程创建一个 RunLoop。
 loopsDic = CFDictionaryCreateMutable();
@@ -49,37 +42,6 @@ CFDictionarySetValue(loopsDic, thread, loop);
 _CFSetTSD(..., thread, loop, __CFFinalizeRunLoop);
 }
 
-OSSpinLockUnLock(&loopsLock);
-return loop;
-}
-
-CFRunLoopRef CFRunLoopGetMain() {
-return _CFRunLoopGet(pthread_main_thread_np());
-}
-
-CFRunLoopRef CFRunLoopGetCurrent() {
-return _CFRunLoopGet(pthread_self());
-}
-
-
-```
-
-
-每条线程都有唯一的一个与之对应的RunLoop对象
-
-RunLoop保存在一个全局的Dictionary里，线程作为Key，RunLoop作为Value
-
-```
-if (!loopsDic) {
-// 第一次进入时，初始化全局Dic，并先为主线程创建一个 RunLoop。
-loopsDic = CFDictionaryCreateMutable();
-CFRunLoopRef mainLoop = _CFRunLoopCreate();
-CFDictionarySetValue(loopsDic, pthread_main_thread_np(), mainLoop);
-}
-
-/// 直接从 Dictionary 里获取。
-CFRunLoopRef loop = CFDictionaryGetValue(loopsDic, thread));
-
 ```
 
 线程刚创建时并没有RunLoop对象，RunLoop会在第一次获取它时创建
@@ -91,7 +53,7 @@ RunLoop会在线程结束时销毁
 
 ```
 
-- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+- (void)test {
 
     dispatch_async(dispatch_get_global_queue(0, 0), ^{
         [self delayToDoOne];
@@ -116,6 +78,69 @@ RunLoop会在线程结束时销毁
 2022-04-11 20:41:11.712249+0800 CE[1840:91703] delayToDo
 
 ```
+
+
+
+
+
+##RunLoop和线程之间的关系
+* RunLoop保存在一个全局的Dictionary里面，线程为key，RunLoop为Value。
+* 线程刚创建的时候是没有RunLoop对象的，RunLoop会在第一次获取它的时候创建。
+* RunLoop会在线程结束的时候销毁【解释上面为什么子线程延迟方法没有调用，线程执行很快，瞬间就结束啦，没有runloop为其保活】。
+* 主线程的RunLoop已经自动获取（创建），子线程默认没有开启RunLoop。
+* 每条线程都有唯一的一个与之对应的RunLoop对象。
+* 先有线程，再有RunLoop
+
+```
+
+- (void)test {
+
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+        [self delayToDoOne];
+        [self performSelector:@selector(delayToDoTwo) withObject:nil afterDelay:.5];
+        
+         NSRunLoop *rp = [NSRunLoop currentRunLoop];
+        [rp addPort:[NSMachPort port] forMode:NSRunLoopCommonModes];
+        [rp run];
+    });
+    
+    return YES;
+}
+
+2022-04-12 20:37:16.194352+0800 CE[1155:58208] delayToDoTwo
+
+```
+
+##Mode类型
+
+* NSDefaultRunLoopMode: 应用程序的默认Mode，通常主线程是在这个Mode下运行。
+* NSRunLoopCommonModes: 这是一个占位用的Mode，作为标记KCFRunLoopDefaultMode和UITrackingRunLoopMode用，对几个模式（Mode）进行标记的一个集合, 并不是一种真正的Mode。`但是某一个时刻只能有一个确定的Mode，就是currentMode.【重要线索】`
+* UITrackingRunLoopMode: 界面跟踪Mode，用于ScrollView追踪触摸滑动，保证界面滑动的时候不受其他Mode影响。
+
+##解决NSTimer在滑动时停止工作的问题（将Timer添加到CommonMode里面即可）。
+
+```
+NSTimer *timer = [NSTimer timerWithTimeInterval:1 target:self selector:@selector(timerEvent) userInfo:nil repeats:YES];
+[[NSRunLoop currentRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+
+```
+Timer默认是处在NSDefaultRunLoopMode模式，当我们滑动页面的时候RunLoop会切换到UITrackingRunLoopMode模式，这样我们的timer就停止工作了，进而导致timer不准确。NSRunLoopCommonModes这个模式等效于NSDefaultRunLoopMode和UITrackingRunLoopMode的结合。所以给timer指定NSRunLoopCommonModes模式，这样 就可以在NSDefaultRunLoopMode、UITrackingRunLoopMode模式下都运行。
+
+##另外可以通过监测RunLoop的状态监测应用卡顿。
+```
+/* Run Loop Observer Activities */
+typedef CF_OPTIONS(CFOptionFlags, CFRunLoopActivity) {
+    kCFRunLoopEntry = (1UL << 0),  // 即将进入loop
+    kCFRunLoopBeforeTimers = (1UL << 1),  // 即将处理timer
+    kCFRunLoopBeforeSources = (1UL << 2), // 即将处理 source
+    kCFRunLoopBeforeWaiting = (1UL << 5),   // 即将进入休眠
+    kCFRunLoopAfterWaiting = (1UL << 6),   // 即将从休眠中被唤醒
+    kCFRunLoopExit = (1UL << 7),   // 即将推出runloop
+    kCFRunLoopAllActivities = 0x0FFFFFFFU  // 默认所有状态
+};
+```
+
+创建一个观察者，将创建好的观察者添加到主线程的commonMode模式下观察，创建一个持续的子线程专门用来监控主线程的runloop状态，一旦发现进入睡眠前的状态kCFRunLoopBeforeSources，或者唤醒后的状态kCFRunLoopAfterWaiting，在设置的时间阈值内一直没有变化，即可判断为卡顿，dump出堆栈的信息，从而进一步分析出具体是哪个方法的执行时间长。
 
 
 
