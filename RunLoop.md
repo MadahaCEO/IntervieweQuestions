@@ -1,10 +1,20 @@
 #RunLoop
 
-RunLoop又叫运行循环，内部就是一个do while的循环，在这个循环内部不断处理各种任务，
-保证程序持续运行。
+RunLoop又叫运行循环，内部就是一个do while的循环，在这个循环内部不断处理各种任务，它在循环监听着各种事件源、消息，对他们进行管理并分发给线程来执行，保证程序持续运行。
+
+
 
 ##保持程序持续运行。
 App一启动就会开启主线程，主线程在开启的时候就会开启主线程对应的RunLoop，能保证线程不被销毁，主线程不销毁，程序就会持续运行。
+
+```
+int main(int argc, char * argv[]) {
+    @autoreleasepool {
+        return UIApplicationMain(argc, argv, nil, NSStringFromClass([AppDelegate class]));
+    }
+}
+```
+UIApplicationMain函数内部启动了runloop，因此UIApplicationMain函数是一直都没有返回的，保持了程序的持续运行。而这个默认启动的runloop是和主线程相关的
 
 ##处理App中各类事件。
 事件响应、手势识别、界面刷新、AutoreleasePool自动释放池、NSTimer等事件处理。
@@ -19,8 +29,15 @@ iOS中有两套API来访问和使用RunLoop：Foundation中的NSRunLoop、Core F
 CFRunLoop是开源的，地址是：https://opensource.apple.com/tarballs/CF/，CFRunLoopRef提供了两个自动获取RunLoop的函数：CFRunLoopGetMain()、CFRunLoopGetCurrent()，其内部逻辑如下：
 
 
-每条线程都有唯一的一个与之对应的RunLoop对象
+##RunLoop和线程之间的关系
+* RunLoop保存在一个全局的Dictionary里面，线程为key，RunLoop为Value。
+* 线程刚创建的时候是没有RunLoop对象的，RunLoop会在第一次获取它的时候创建。
+* RunLoop会在线程结束的时候销毁【解释上面为什么子线程延迟方法没有调用，线程执行很快，瞬间就结束啦，没有runloop为其保活】。
+* 主线程的RunLoop已经自动获取（创建），子线程默认没有开启RunLoop。
+* 每条线程都有唯一的一个与之对应的RunLoop对象。
+* 先有线程，再有RunLoop
 
+runloop在第一次获取时创建，然后在线程结束时销毁。所以，在子线程如果不手动获取runloop，它是一直都不会有的。
 RunLoop保存在一个全局的Dictionary里，线程作为Key，RunLoop作为Value
 
 ```
@@ -44,11 +61,6 @@ _CFSetTSD(..., thread, loop, __CFFinalizeRunLoop);
 
 ```
 
-线程刚创建时并没有RunLoop对象，RunLoop会在第一次获取它时创建
-
-RunLoop会在线程结束时销毁
-
-主线程的RunLoop默认已经自动创建了，而子线程默认没有开启RunLoop
 
 
 ```
@@ -80,17 +92,6 @@ RunLoop会在线程结束时销毁
 ```
 
 
-
-
-
-##RunLoop和线程之间的关系
-* RunLoop保存在一个全局的Dictionary里面，线程为key，RunLoop为Value。
-* 线程刚创建的时候是没有RunLoop对象的，RunLoop会在第一次获取它的时候创建。
-* RunLoop会在线程结束的时候销毁【解释上面为什么子线程延迟方法没有调用，线程执行很快，瞬间就结束啦，没有runloop为其保活】。
-* 主线程的RunLoop已经自动获取（创建），子线程默认没有开启RunLoop。
-* 每条线程都有唯一的一个与之对应的RunLoop对象。
-* 先有线程，再有RunLoop
-
 ```
 
 - (void)test {
@@ -99,6 +100,7 @@ RunLoop会在线程结束时销毁
         [self delayToDoOne];
         [self performSelector:@selector(delayToDoTwo) withObject:nil afterDelay:.5];
         
+        // runloop 代码下载下面，不能写在上面。runloog的本质就是持续循环，那么代码肯定就不会向下走，所以，上面的方法肯定不会继续执行了
          NSRunLoop *rp = [NSRunLoop currentRunLoop];
         [rp addPort:[NSMachPort port] forMode:NSRunLoopCommonModes];
         [rp run];
@@ -124,7 +126,11 @@ NSTimer *timer = [NSTimer timerWithTimeInterval:1 target:self selector:@selector
 [[NSRunLoop currentRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
 
 ```
-Timer默认是处在NSDefaultRunLoopMode模式，当我们滑动页面的时候RunLoop会切换到UITrackingRunLoopMode模式，这样我们的timer就停止工作了，进而导致timer不准确。NSRunLoopCommonModes这个模式等效于NSDefaultRunLoopMode和UITrackingRunLoopMode的结合。所以给timer指定NSRunLoopCommonModes模式，这样 就可以在NSDefaultRunLoopMode、UITrackingRunLoopMode模式下都运行。
+Timer默认是处在NSDefaultRunLoopMode模式，当我们滑动页面的时候RunLoop会切换到UITrackingRunLoopMode模式，这样我们的timer就停止工作了，进而导致timer不准确。NSRunLoopCommonModes占位用的mode，它不是真正意义上的mode。这个模式等效于NSDefaultRunLoopMode和UITrackingRunLoopMode的结合。所以给timer指定NSRunLoopCommonModes模式，这样 就可以在NSDefaultRunLoopMode、UITrackingRunLoopMode模式下都运行。
+
+
+##RunLoop 和 autoreleasepool的关系
+
 
 ##另外可以通过监测RunLoop的状态监测应用卡顿。
 ```
@@ -148,3 +154,4 @@ https://blog.csdn.net/u013378438/article/details/80239686
 https://blog.ibireme.com/2015/05/18/runloop/
 https://www.jianshu.com/p/14f0d8ea7acd
 https://www.jianshu.com/p/2ba1a946ef95
+https://www.jianshu.com/p/911549ae4bf8
